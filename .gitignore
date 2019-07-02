@@ -1,0 +1,7 @@
+tpmkey/tpmkey
+obj/
+
+/testing/
+/.vscode/
+
+*~
