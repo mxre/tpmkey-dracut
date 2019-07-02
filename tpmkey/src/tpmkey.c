@@ -22,7 +22,7 @@ static inline void init_gcrypt() {
 /**
  * Unseal key with TPM, store string in keyring
  */
-static bool unseal_key(const char* filename) {
+static bool unseal_key(const char* filename, FILE * restrict output) {
         uint8_t* blob = NULL;
         uint8_t buffer[100] = { 0 };
         uint32_t blob_length = 0;
@@ -64,8 +64,8 @@ static bool unseal_key(const char* filename) {
                         return false;
                 }
 
-               fputs((char*) buffer, stdout);
-               fflush(stdout);
+               fputs((char*) buffer, output);
+               fflush(output);
         } else {
                 fprintf(stderr, "Error %s from TPM_Unseal\n", TPM_GetErrMsg(err));
                 return false;
@@ -75,13 +75,34 @@ static bool unseal_key(const char* filename) {
 }
 
 int main (int argc, char* argv[]) {
-        char* keyfilename;
+        char* keyfilename = NULL, * outfile = NULL;
+        FILE* output =stdout;
+        int ret;
 
-        if (argc != 2) {
+        if (argc < 2 || argc > 4) {
                 fprintf(stderr, "Need filename as parameter.\n");
                 return 1;
         }
         keyfilename = argv[1];
+        if (argc == 3) {
+                outfile = argv[2];
+                output = fopen(outfile, "wb");
+        }
 
-        return unseal_key(keyfilename) ? 0 : 1;
+        if (!output) {
+                fprintf(stderr, "Could not open '%s' for writing: %m\n", outfile);
+                return 1;
+        }
+
+        ret = !unseal_key(keyfilename, output);
+
+        if (argc == 3) {
+                if (ftell(output) == 0) {
+                        ret = 1;
+                        unlink(outfile);
+                }
+                fclose(output);
+        }
+
+        return ret;
 }

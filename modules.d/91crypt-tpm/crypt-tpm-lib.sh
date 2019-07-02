@@ -8,5 +8,5 @@ tpm_decrypt() {
     local keydev="$3"
     local device="$4"
 
-    tpmkey "$mntp/$keypath"
+    tpmkey "$mntp/$keypath" || return 1
 }

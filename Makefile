@@ -7,7 +7,7 @@ clean:
 	make -C tpmkey clean
 
 tpmkey/tpmkey:
-	make -C tpmkey
+	make -C tpmkey dist
 
 DRACUT_MODULES=/usr/lib/dracut/modules.d
 
@@ -17,6 +17,6 @@ install_tpm: tpmkey/tpmkey modules.d/91crypt-tpm/module-setup.sh modules.d/91cry
 	@echo -e "\x1b[31mINST\x1b[0m $^"
 	install -D -m 0755 --target-directory="$(DRACUT_MODULES)/91crypt-tpm" $^
 
-install_crypt_lib: modules.d/90crypt/parse-keydev.sh modules.d/90crypt/crypt-lib.sh 
+install_crypt_lib: modules.d/90crypt/parse-keydev.sh modules.d/90crypt/crypt-lib.sh modules.d/90crypt/cryptroot-ask.sh
 	@echo -e "\x1b[31mINST\x1b[0m $^"
 	install -D -m 0755 --target-directory="$(DRACUT_MODULES)/90crypt" $^
