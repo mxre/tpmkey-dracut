@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#include <keyutils.h>
 #include <gcrypt.h>
 #include <tpmfunc.h>
 
@@ -22,12 +23,9 @@ static inline void init_gcrypt() {
 /**
  * Unseal key with TPM, store string in keyring
  */
-static bool unseal_key(const char* filename, FILE * restrict output) {
+static bool unseal_key(const char* filename, uint8_t** buffer, size_t* out_length) {
         uint8_t* blob = NULL;
-        uint8_t buffer[100] = { 0 };
-        uint32_t blob_length = 0;
-        uint32_t length = 100;
-        uint32_t err;
+        uint32_t blob_length = 0, length = 0, err;
         int fd;
         struct stat st = { 0 };
         uint32_t parent_key_handle = TPM_KH_SRK;
@@ -54,20 +52,18 @@ static bool unseal_key(const char* filename, FILE * restrict output) {
         }
         close(fd);
 
-        err = TPM_Unseal(parent_key_handle, pass, NULL, blob, blob_length, buffer, &length);
+        length = blob_length;
+        *buffer = (uint8_t*) malloc(length);
+        
+        err = TPM_Unseal(parent_key_handle, pass, NULL, blob, blob_length, *buffer, &length);
         free(blob);
-        buffer[length] = '\0';
+        (*buffer)[length] = '\0';
 
         if (!err) {
-                if (length >= 100) {
-                        fprintf(stderr, "Key is too long, systemd does not like that\n");
-                        return false;
-                }
-
-               fputs((char*) buffer, output);
-               fflush(output);
+                *out_length = length;
         } else {
-                fprintf(stderr, "Error %s from TPM_Unseal\n", TPM_GetErrMsg(err));
+                free(*buffer);
+                fprintf(stderr, "Error from TPM_Unseal: %s\n", TPM_GetErrMsg(err));
                 return false;
         }
 
@@ -76,8 +72,10 @@ static bool unseal_key(const char* filename, FILE * restrict output) {
 
 int main (int argc, char* argv[]) {
         char* keyfilename = NULL, * outfile = NULL;
-        FILE* output =stdout;
-        int ret;
+        FILE* output = stdout;
+        uint8_t* buffer;
+        size_t length;
+        int ret = 1;
 
         if (argc < 2 || argc > 4) {
                 fprintf(stderr, "Need filename as parameter.\n");
@@ -85,18 +83,38 @@ int main (int argc, char* argv[]) {
         }
         keyfilename = argv[1];
         if (argc == 3) {
-                outfile = argv[2];
-                output = fopen(outfile, "wb");
+                if (strncmp(argv[2], "key:", 4) == 0) {
+                        outfile = argv[2] + 4;
+                        output = NULL;
+                } else {
+                        outfile = argv[2];
+                        
+                        if (!(output = fopen(outfile, "wb"))) {
+                                fprintf(stderr, "Could not open '%s' for writing: %m\n", outfile);
+                                return 1;
+                        }
+                }
         }
 
-        if (!output) {
-                fprintf(stderr, "Could not open '%s' for writing: %m\n", outfile);
-                return 1;
+        if (unseal_key(keyfilename, &buffer, &length)) {
+                ret = 0;
+                if (output) {
+                        fputs((char*) buffer, output);
+                        fflush(output);
+                } else {
+                        key_serial_t key_id = add_key("user", outfile, buffer, length, KEY_SPEC_SESSION_KEYRING);
+                        if (key_id < 0) {
+                                fprintf(stderr, "Could not insert key in keyring: %m\n");
+                                ret = 1;
+                        } else {
+                                keyctl_set_timeout(key_id, 60);
+                                keyctl_setperm(key_id, (key_perm_t) 0x3f000000);
+                        }
+                }
+                free(buffer);
         }
 
-        ret = !unseal_key(keyfilename, output);
-
-        if (argc == 3) {
+        if (outfile && output) {
                 if (ftell(output) == 0) {
                         ret = 1;
                         unlink(outfile);

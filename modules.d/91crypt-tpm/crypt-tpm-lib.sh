@@ -1,7 +1,5 @@
 #!/bin/sh
 
-command -v getarg >/dev/null || . /lib/dracut-lib.sh
-
 tpm_decrypt() {
     local mntp="$1"
     local keypath="$2"

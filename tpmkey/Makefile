@@ -1,4 +1,4 @@
-LIBRARIES = -lgcrypt
+LIBRARIES = -lgcrypt -lkeyutils
 INCLUDES = -Ilibtpm
 
 # source files
