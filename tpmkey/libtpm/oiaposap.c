@@ -50,8 +50,6 @@
 #include <hmac.h>
 #include <oiaposap.h>
 
-#include <openssl/aes.h>
-
 void TPM_DetermineSessionEncryption(const session* sess, int* use_xor)
 {
         const osapsess* osap = &sess->type.osap;
@@ -64,6 +62,55 @@ void TPM_DetermineSessionEncryption(const session* sess, int* use_xor)
              (dsap->etype >> 8) == TPM_ET_AES128_CTR)) {
                 *use_xor = 0;
         }
+}
+
+
+void TPM_CreateEncAuth(const session *sess, const unsigned char *in, unsigned char *out,
+                       const unsigned char *nonceodd)
+{
+	int use_xor = 0;
+	TPM_DetermineSessionEncryption(sess, &use_xor);
+	if (!use_xor) {
+                unsigned char ctr[TPM_AES_BLOCK_SIZE];
+                const unsigned char* key = TSS_Session_GetAuth((session *)sess);
+
+		if (!nonceodd) {
+			memcpy(ctr,
+			       TSS_Session_GetENonce((session *)sess),
+			       sizeof(ctr));
+		} else {
+			memcpy(ctr,
+			       nonceodd,
+			       sizeof(ctr));
+		}
+
+		TPM_AES_ctr128_Encrypt(out,
+				       in,
+				       TPM_HASH_SIZE,
+				       key,
+                                       TPM_AES_BITS,
+				       ctr);
+	} else {
+		uint32_t i;
+		unsigned char xorwork[TPM_HASH_SIZE * 2];
+		unsigned char xorhash[TPM_HASH_SIZE];
+		/* calculate encrypted authorization value for new key */
+		memcpy(xorwork,
+		       TSS_Session_GetAuth((session *)sess),
+		       TPM_HASH_SIZE);
+		if (!nonceodd) {
+			memcpy(xorwork+TPM_HASH_SIZE,
+			       TSS_Session_GetENonce((session *)sess),
+			       TPM_HASH_SIZE);
+		} else {
+			memcpy(xorwork+TPM_HASH_SIZE,
+			       nonceodd,
+			       TPM_HASH_SIZE);
+		}
+		TSS_sha1(xorwork,TPM_HASH_SIZE * 2,xorhash);
+		for (i = 0; i < TPM_HASH_SIZE; i++) 
+			out[i] = xorhash[i] ^ in[i];
+	}
 }
 
 /****************************************************************************/

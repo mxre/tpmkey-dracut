@@ -6,12 +6,14 @@ SOURCES = \
 	src/tpmkey.c
 
 LIBTPM = \
-    libtpm/delegation.c libtpm/eviction.c libtpm/hmac.c libtpm/keys.c libtpm/keyswap.c libtpm/oiaposap.c \
-	libtpm/pcrs.c libtpm/rng.c libtpm/serialize.c libtpm/session.c libtpm/seal.c libtpm/miscfunc.c \
-	libtpm/transport.c libtpm/tpmutil.c libtpm/tpmutil_dev.c
+    libtpm/delegation.c libtpm/eviction.c libtpm/hmac.c libtpm/keys.c libtpm/keyswap.c libtpm/nv.c \
+	libtpm/oiaposap.c libtpm/pcrs.c libtpm/rng.c libtpm/serialize.c libtpm/session.c libtpm/seal.c \
+	libtpm/miscfunc.c libtpm/transport.c libtpm/tpmutil.c libtpm/tpmutil_dev.c
 
 # set required C flags
-CFLAGS += -mrdrnd -std=gnu11 -D_GNU_SOURCE=1 -DTPM_POSIX=1 -DTPM_V12=1 -DTPM_USE_TAG_IN_STRUCTURE=1 -DTPM_USE_CHARDEV=1 -DTPM_NV_DISK=1 -DTPM_AES=1
+CFLAGS += -mrdrnd -std=gnu11 \
+	-D_GNU_SOURCE=1 -DTPM_POSIX=1 -DTPM_V12=1 -DTPM_USE_TAG_IN_STRUCTURE=1 \
+	-DTPM_USE_CHARDEV=1 -DTPM_NV_DISK=1 -DTPM_AES=1
 
 # executable name
 BINARY = tpmkey
@@ -68,13 +70,5 @@ clean:
 	$(RM) $(OBJECTS) $(BINARY) $(OBJECTS:.o=.d)
 	@echo -e "\x1b[31mRM\x1b[0m   $(LIBTPM_O)"
 	$(RM) $(LIBTPM_O) $(LIBTPM_O:.o=.d)
-
-install: dist
-	@echo -e "\x1b[34mINST\x1b[0m /usr/lib/initcpio/install/sd-tpm"
-	install -m644 data/sd-tpm "/usr/lib/initcpio/install"
-	@echo -e "\x1b[34mINST\x1b[0m /usr/lib/systemd/system/tpmkey.service"
-	install -m644 data/tpmkey.service "/usr/lib/systemd/system"
-	@echo -e "\x1b[34mINST\x1b[0m /usr/lib/tpmkey"
-	install -m755 tpmkey "/usr/lib"
 
 -include $(OBJECTS:.o=.d) $(LIBTPM_O:.o=.d)

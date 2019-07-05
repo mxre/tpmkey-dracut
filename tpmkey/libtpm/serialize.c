@@ -261,6 +261,28 @@ uint32_t TPM_ReadCurrentTicks(struct tpm_buffer* buffer,
                              PARAMS_TPM_CURRENT_TICKS_R(tct));
 }
 
+
+uint32_t TPM_WritePubInfo(TPM_NV_DATA_PUBLIC * pub,
+                           struct tpm_buffer *buffer) {
+	uint32_t ret;
+
+	if (0 == pub->pcrInfoWrite.pcrSelection.sizeOfSelect) {
+		pub->pcrInfoWrite.pcrSelection.sizeOfSelect = sizeof(pub->pcrInfoWrite.pcrSelection.pcrSelect);
+		memset(pub->pcrInfoWrite.pcrSelection.pcrSelect,
+		       0x0, 
+		       pub->pcrInfoWrite.pcrSelection.sizeOfSelect);
+	}
+	if (0 == pub->pcrInfoRead.pcrSelection.sizeOfSelect) {
+		pub->pcrInfoRead.pcrSelection.sizeOfSelect = sizeof(pub->pcrInfoRead.pcrSelection.pcrSelect);
+		memset(pub->pcrInfoRead.pcrSelection.pcrSelect,
+		       0x0, 
+		       pub->pcrInfoRead.pcrSelection.sizeOfSelect);
+	}
+	ret = TSS_buildbuff(FORMAT_TPM_NV_DATA_PUBLIC, buffer,
+	                    PARAMS_TPM_NV_DATA_PUBLIC_W(pub));
+	return ret;
+}
+
 #if 0
 /****************************************************************************/
 /*                                                                          */

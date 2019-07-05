@@ -2,6 +2,9 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
+
+#include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -21,9 +24,46 @@ static inline void init_gcrypt() {
 }
 
 /**
- * Unseal key with TPM, store string in keyring
+ * Unseal with TPM from TPM NVRAM
  */
-static bool unseal_key(const char* filename, uint8_t** buffer, size_t* out_length) {
+static bool unseal_nv(uint32_t address, uint8_t** buffer, size_t* out_length) {
+        uint8_t* blob = NULL;
+        uint32_t blob_length = 0, length = 0, err;
+        uint32_t parent_key_handle = TPM_KH_SRK;
+        // well known password
+        unsigned char pass[20] = {0};
+
+        blob_length = 1024;
+        blob = (uint8_t*) malloc(blob_length);
+        err = TPM_NV_ReadValue(address, 0, blob_length, blob, &blob_length, NULL);
+        if (err) {
+                free(blob);
+                fprintf(stderr, "Error from TPM_NV_ReadValue: %s\n", TPM_GetErrMsg(err));
+                return false;
+        }
+
+        length = blob_length;
+        *buffer = (uint8_t*) malloc(length);
+        
+        err = TPM_Unseal(parent_key_handle, pass, NULL, blob, blob_length, *buffer, &length);
+        free(blob);
+        (*buffer)[length] = '\0';
+
+        if (!err) {
+                *out_length = length;
+        } else {
+                free(*buffer);
+                fprintf(stderr, "Error from TPM_Unseal: %s\n", TPM_GetErrMsg(err));
+                return false;
+        }
+
+        return true;
+}
+
+/**
+ * Unseal with TPM from file
+ */
+static bool unseal_file(const char* filename, uint8_t** buffer, size_t* out_length) {
         uint8_t* blob = NULL;
         uint32_t blob_length = 0, length = 0, err;
         int fd;
@@ -31,8 +71,6 @@ static bool unseal_key(const char* filename, uint8_t** buffer, size_t* out_lengt
         uint32_t parent_key_handle = TPM_KH_SRK;
         // well known password
         unsigned char pass[20] = {0};
-
-        init_gcrypt();
 
         fd = open(filename, O_RDONLY);
         if (fd < 0) {
@@ -72,16 +110,35 @@ static bool unseal_key(const char* filename, uint8_t** buffer, size_t* out_lengt
 
 int main (int argc, char* argv[]) {
         char* keyfilename = NULL, * outfile = NULL;
+        uint32_t nv_address = (uint32_t) -1;
         FILE* output = stdout;
         uint8_t* buffer;
         size_t length;
         int ret = 1;
+        bool unseal;
 
-        if (argc < 2 || argc > 4) {
-                fprintf(stderr, "Need filename as parameter.\n");
+        if (2 > argc || argc > 4) {
+                fprintf(stderr, "Illegal number of arguments.");
                 return 1;
         }
-        keyfilename = argv[1];
+        if (argc == 2) {
+                if (strncmp(argv[1], "nv:", 3) == 0) {
+                        errno = 0;
+                        char* ep;
+                        long value = strtol(argv[1] + 5, &ep, 16);
+                        if ((errno == ERANGE && (value == LONG_MAX || value == LONG_MIN)) || (errno != 0 && value == 0)) {
+                                fprintf(stderr, "Illegal NV address\n");
+                                return 1;
+                        } else if (value < 0 && value > UINT32_MAX) {
+                                fprintf(stderr, "Illegal NV address\n");
+                                return 1;
+                        } else {
+                                nv_address = (uint32_t) value;
+                        }
+                } else {
+                        keyfilename = argv[1];
+                }
+        }
         if (argc == 3) {
                 if (strncmp(argv[2], "key:", 4) == 0) {
                         outfile = argv[2] + 4;
@@ -96,10 +153,17 @@ int main (int argc, char* argv[]) {
                 }
         }
 
-        if (unseal_key(keyfilename, &buffer, &length)) {
+        init_gcrypt();
+
+        if (keyfilename) {
+                unseal = unseal_file(keyfilename, &buffer, &length);
+        } else {
+                unseal = unseal_nv(nv_address, &buffer, &length);
+        }
+        if (unseal) {
                 ret = 0;
                 if (output) {
-                        fputs((char*) buffer, output);
+                        fwrite((char*) buffer, 1, length, output);
                         fflush(output);
                 } else {
                         key_serial_t key_id = add_key("user", outfile, buffer, length, KEY_SPEC_SESSION_KEYRING);
