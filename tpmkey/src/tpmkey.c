@@ -19,7 +19,9 @@ static inline void init_gcrypt() {
                 exit(2);
         }
 
-        gcry_control(GCRYCTL_DISABLE_SECMEM, 0);
+        gcry_control(GCRYCTL_SUSPEND_SECMEM_WARN);
+        gcry_control(GCRYCTL_INIT_SECMEM, 16 * 1024, 0);
+        gcry_control(GCRYCTL_RESUME_SECMEM_WARN);
         gcry_control(GCRYCTL_INITIALIZATION_FINISHED, 0);
 }
 
@@ -33,7 +35,7 @@ static bool unseal_nv(uint32_t address, uint8_t** buffer, size_t* out_length) {
         // well known password
         unsigned char pass[20] = {0};
 
-        blob_length = 1024;
+        blob_length = 330;
         blob = (uint8_t*) malloc(blob_length);
         err = TPM_NV_ReadValue(address, 0, blob_length, blob, &blob_length, NULL);
         if (err) {
@@ -43,7 +45,7 @@ static bool unseal_nv(uint32_t address, uint8_t** buffer, size_t* out_length) {
         }
 
         length = blob_length;
-        *buffer = (uint8_t*) malloc(length);
+        *buffer = (uint8_t*) gcry_malloc_secure(length);
         
         err = TPM_Unseal(parent_key_handle, pass, NULL, blob, blob_length, *buffer, &length);
         free(blob);
@@ -52,7 +54,7 @@ static bool unseal_nv(uint32_t address, uint8_t** buffer, size_t* out_length) {
         if (!err) {
                 *out_length = length;
         } else {
-                free(*buffer);
+                gcry_free(*buffer);
                 fprintf(stderr, "Error from TPM_Unseal: %s\n", TPM_GetErrMsg(err));
                 return false;
         }
@@ -80,6 +82,10 @@ static bool unseal_file(const char* filename, uint8_t** buffer, size_t* out_leng
 
         fstat(fd, &st);
         blob_length = st.st_size;
+        if (blob_length > 330) {
+                fprintf(stderr, "File '%s' is too large to be a TPM key blob.\n", filename);
+                return false;
+        }
         blob = (uint8_t*) malloc(blob_length);
 
         if (read(fd, blob, blob_length) < 0) {
@@ -91,7 +97,7 @@ static bool unseal_file(const char* filename, uint8_t** buffer, size_t* out_leng
         close(fd);
 
         length = blob_length;
-        *buffer = (uint8_t*) malloc(length);
+        *buffer = (uint8_t*) gcry_malloc_secure(length);
         
         err = TPM_Unseal(parent_key_handle, pass, NULL, blob, blob_length, *buffer, &length);
         free(blob);
@@ -100,7 +106,7 @@ static bool unseal_file(const char* filename, uint8_t** buffer, size_t* out_leng
         if (!err) {
                 *out_length = length;
         } else {
-                free(*buffer);
+                gcry_free(*buffer);
                 fprintf(stderr, "Error from TPM_Unseal: %s\n", TPM_GetErrMsg(err));
                 return false;
         }
@@ -175,7 +181,7 @@ int main (int argc, char* argv[]) {
                                 keyctl_setperm(key_id, (key_perm_t) 0x3f000000);
                         }
                 }
-                free(buffer);
+                gcry_free(buffer);
         }
 
         if (outfile && output) {
